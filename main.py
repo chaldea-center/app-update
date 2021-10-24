@@ -39,14 +39,10 @@ def is_new_ver(new_ver: str, current_ver: str) -> bool:
 
 
 class Store:
-    def __init__(self, _type: StoreType, store_url: str, avatar_url: str, msg_prefix: str, xpath: Optional[str] = None,
-                 link: Optional[str] = None):
+    def __init__(self, _type: StoreType, store_url: str, avatar_url: str):
         self.type: StoreType = _type
         self.store_url: str = store_url
         self.avatar_url: str = avatar_url
-        self.msg_prefix = msg_prefix
-        self.xpath: Optional[str] = xpath
-        self.link: Optional[str] = link
         self.resolved_version: Optional[str] = None
 
     def parse_version(self) -> str:
@@ -60,10 +56,10 @@ class Store:
             raise NotImplementedError(self.type)
         return self.resolved_version
 
-    @staticmethod
-    def _xml_path(store_url: str, xpath: str) -> str:
+    def get_play_store_version(self) -> str:
+        xpath = "/html/body/div[1]/div[4]/c-wiz/div/div[2]/div/div/main/c-wiz[4]/div[1]/div[2]/div/div[4]/span/div/span"
         try:
-            response = httpx.get(store_url, follow_redirects=True)
+            response = httpx.get(self.store_url, follow_redirects=True)
             if not response.text:
                 print('Empty response')
                 return DEFAULT_VERSION
@@ -71,11 +67,8 @@ class Store:
             version_string: str = site_html.xpath(xpath)[0].text
             return re.sub(r'バージョン|Version|版本', '', version_string).strip()
         except Exception as e:  # pylint: disable=broad-except
-            print(f'store version not found, error={e}')
+            print(f'Error: store version not found, error={e}')
             return DEFAULT_VERSION
-
-    def get_play_store_version(self) -> str:
-        return self._xml_path(self.store_url, self.xpath)
 
     def get_ios_version(self) -> str:
         app_store_response = httpx.get(
@@ -83,14 +76,7 @@ class Store:
         )
         app_detail = app_store_response.json()["results"][0]
         api_version = str(app_detail["version"])
-        app_store_site_url = str(app_detail["trackViewUrl"]).split("?", maxsplit=1)[0]
-        app_store_version = self._xml_path(app_store_site_url, self.xpath)
-        if is_new_ver(api_version, app_store_version):
-            return api_version
-        else:
-            if api_version != app_store_version:
-                print("App store website version is newer than api version")
-            return app_store_version
+        return api_version
 
     def get_mac_version(self) -> str:
         response = httpx.get(self.store_url, follow_redirects=True)
@@ -109,26 +95,17 @@ play_store = Store(
     _type=StoreType.PLAY_STORE,
     store_url="https://play.google.com/store/apps/details?id=cc.narumi.chaldea&hl=en",
     avatar_url="https://i.imgur.com/kN7NO37.png",  # From the PLay Store apk P5w.png,
-    msg_prefix="Android app",
-    xpath="/html/body/div[1]/div[4]/c-wiz/div/div[2]/div/div/main/c-wiz[4]/div[1]/div[2]/div/div[4]/span/div/span",
-    link="https://play.google.com/store/apps/details?id=cc.narumi.chaldea",
 )
 ios_store = Store(
     _type=StoreType.APP_STORE,
     store_url="https://itunes.apple.com/lookup?bundleId=cc.narumi.chaldea&country=us",
     avatar_url="https://i.imgur.com/fTxPeCW.png",  # https://www.apple.com/app-store/
-    msg_prefix="iOS app",
-    xpath="/html/body/div[1]/div[4]/main/div/section[4]/div[2]/div[1]/div/p",
-    link="https://apps.apple.com/us/app/chaldea/id1548713491",
 )
 mac_store = Store(
     _type=StoreType.MAC_STORE,
     store_url="https://apps.apple.com/us/app/chaldea/id1548713491",
     # https://developer.apple.com/assets/elements/icons/xcode-12/xcode-12-96x96_2x.png
     avatar_url="https://i.imgur.com/XP7rskN.png",
-    msg_prefix="Mac app",
-    xpath=None,
-    link="https://apps.apple.com/us/app/chaldea/id1548713491",
 )
 
 ALL_STORES = (play_store, ios_store, mac_store)
@@ -144,11 +121,11 @@ def main(webhook: str) -> None:
     save_data: Dict[StoreType, str] = {}
 
     for store in ALL_STORES:
-        print(f'get {store.type} version...')
+        print(f'getting {store.type} version...')
         old_ver = old_save_data.get(store.type) or DEFAULT_VERSION
         new_ver = store.parse_version()
         if is_new_ver(new_ver, old_ver):
-            message = f"{store.msg_prefix} update: v{new_ver}"
+            message = f"√ {store.type} update: v{old_ver} -> v{new_ver}"
             print(message)
             webhook_content = {
                 "content": message,
@@ -158,16 +135,15 @@ def main(webhook: str) -> None:
             httpx.post(webhook, data=webhook_content, follow_redirects=True)
             save_data[store.type] = new_ver
         else:
+            print(f'× {store.type} stays v{old_ver}')
             save_data[store.type] = old_ver
 
-    with open(current_ver_path, "w", encoding="utf-8") as fp:
-        json.dump(save_data, fp, indent=2)
+    Path(current_ver_path).write_text(json.dumps(save_data, indent=2), encoding='utf-8')
 
 
 if __name__ == "__main__":
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
-        print(f'webhook url: {len(webhook_url)}')
         main(webhook_url)
     else:
         raise ValueError('WEBHOOK not set')
