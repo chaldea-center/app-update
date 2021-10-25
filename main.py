@@ -112,6 +112,8 @@ ALL_STORES = (play_store, ios_store, mac_store)
 
 
 def main(webhook: str) -> None:
+    commit_file = Path('commit.txt')
+    commit_file.write_text('update app version')
     current_ver_path = Path("current_ver.json")
     if current_ver_path.exists():
         old_save_data: Dict[str, str] = json.loads(current_ver_path.read_bytes())
@@ -125,8 +127,9 @@ def main(webhook: str) -> None:
         old_ver = old_save_data.get(store.type) or DEFAULT_VERSION
         new_ver = store.parse_version()
         if is_new_ver(new_ver, old_ver):
-            message = f"√ {store.type} update: v{old_ver} -> v{new_ver}"
-            print(message)
+            message = f"{store.type} update: v{new_ver}"
+            print(f'🎉 {message}')
+            commit_file.write_text(message)
             webhook_content = {
                 "content": message,
                 "username": store.type.value,
@@ -135,7 +138,7 @@ def main(webhook: str) -> None:
             httpx.post(webhook, data=webhook_content, follow_redirects=True)
             save_data[store.type] = new_ver
         else:
-            print(f'× {store.type} stays v{old_ver}')
+            print(f'💦 {store.type} stays v{old_ver}')
             save_data[store.type] = old_ver
 
     Path(current_ver_path).write_text(json.dumps(save_data, indent=2), encoding='utf-8')
