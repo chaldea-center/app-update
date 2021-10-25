@@ -4,8 +4,7 @@ on:
   schedule:
     - cron: 0 */4 * * *
   release:
-    types:
-      - published
+    types: [ published ]
   workflow_dispatch:
 
 jobs:
@@ -42,3 +41,13 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ github.ref }}
+      - name: Publish release note
+        # if: ${{ github.event_name == 'release' }}
+        run: |
+          echo test toJson
+          echo ${{ toJson(github.event) }}
+          echo test save to file
+          echo ${{ toJson(github.event) }} >>event.json
+          ls
+          echo run script
+          python release_note.py  ${{ toJson(github.event) }}
